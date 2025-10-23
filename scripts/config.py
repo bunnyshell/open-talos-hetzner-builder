@@ -62,6 +62,11 @@ def initialize_config(args):
     
     initialize_talos_secrets()
 
+
+    with open('config/.gitignore', 'w') as f:
+        f.write('secrets')
+
+    print("You might want to handle `./config` as a distinct git repo")
     print("You should now edit the configs files:")
     print(config_folders['cluster_config_file'])
     print(config_folders['cluster_nodes_index_file'])
@@ -101,7 +106,7 @@ def generate_talos_config_controlplane(rendered_patches_list, rendered_patches_l
         # ------------ ControlPlane config-----------
     cp_command= ["talosctl", "gen", "config",
         "--with-examples=false", "--with-docs=false", 
-        "--output", f"{config_folders['nodes_dir'] /'controlplane.yaml'}",
+        "--output", f"{config_folders['secrets_nodes_dir'] /'controlplane.yaml'}",
         "--output-types", "controlplane",
         "--kubernetes-version", "1.32.4",
         "--with-secrets", f"{config_folders['secrets_file']}"
@@ -122,11 +127,13 @@ def generate_talos_config_controlplane(rendered_patches_list, rendered_patches_l
 
     try:
         # print(' \\\n  '.join(cp_command))
-        result_cp = subprocess.run(cp_command, capture_output=True, text=True)
+        result_cp = subprocess.run(cp_command, capture_output=False, text=True)
         print(f"Command output for controlplane: {result_cp.stdout}")
         print(f"Command output for controlplane: {result_cp.stderr}")
         print("ok")
     except subprocess.SubprocessError as e:
+        print(' \\\n  '.join(cp_command))
+
         print(f"Error running command for controlplane: {e}")
     except Exception as e:
         print(f"{e}")
@@ -145,8 +152,8 @@ def generate_talos_config_talosconfig():
     try:
         # print(' \\\n  '.join(command_talosconfig))
         result_talosconfig = subprocess.run(command_talosconfig, capture_output=True, text=True)
-        print(f"Command output for controlplane: {result_talosconfig.stdout}")
-        print(f"Command output for controlplane: {result_talosconfig.stderr}")
+        print(f"Command output for talosconfig: {result_talosconfig.stdout}")
+        print(f"Command output for talosconfig: {result_talosconfig.stderr}")
         print("ok")
     except subprocess.SubprocessError as e:
         print(f"Error running command for {filename}: {e}")
@@ -159,7 +166,7 @@ def generate_talos_config_workernodes(rendered_patches_list, rendered_patches_li
 
         command_workernodes= ["talosctl", "gen", "config",
             # "--with-examples=false", "--with-docs=false", 
-            "--output", f"{config_folders['nodes_dir']}/{node['config_file']}",
+            "--output", f"{config_folders['secrets_nodes_dir']}/{node['config_file']}",
             "--output-types", "worker",
             "--kubernetes-version", "1.32.4",
             "--with-secrets", f"{config_folders['secrets_file']}"
@@ -183,11 +190,11 @@ def generate_talos_config_workernodes(rendered_patches_list, rendered_patches_li
         try:
             # print(' \\\n  '.join(command_workernodes))
             result_cp = subprocess.run(command_workernodes, capture_output=True, text=True)
-            print(f"Command output for controlplane {node['name']}: {result_cp.stdout}")
+            print(f"Command output for worker node {node['name']}: {result_cp.stdout}")
             # print(result_cp)
             
             if (result_cp.returncode):
-                print(f"Command output for controlplane {node['name']}: {result_cp.stderr}")
+                print(f"Command output for worker node {node['name']}: {result_cp.stderr}")
                 exit(1)
 
         except subprocess.SubprocessError as e:
@@ -305,6 +312,8 @@ def get_folder_names(config_dir):
     paths['discovery_dir'] = config_dir / "discovery"
     paths['secrets_dir'] = config_dir / "secrets"
     paths['talos_dir'] = config_dir / 'talos'
+
+    paths['secrets_nodes_dir'] = paths['secrets_dir'] / 'nodes'
 
     paths['nodes_dir'] = config_dir / 'talos' / 'nodes'
     paths['patches_dir'] = config_dir / 'talos' / 'patches'
