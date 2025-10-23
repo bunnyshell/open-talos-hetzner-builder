@@ -1,6 +1,6 @@
 # Bunnyshell Open Talos-Hetzner Cluster Builder
 
-This is a collection of scripts and templates to help create Kubernetes cluster on metal (and virtul) servers in Hetzner.
+This is a collection of scripts and templates to help create Kubernetes cluster on metal (and virtual) servers in Hetzner.
 
 ## Architecture
 
