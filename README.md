@@ -11,8 +11,35 @@ This is a collection of scripts and templates to help create Kubernetes cluster 
 - Load Balancer for Ingress
 - vSwitch (connecting VMs and Metal servers)
 
-## Usage
+## Repo structure
 
+```text
+.
+├── config
+│   ├── cluster_config.yaml
+│   ├── cluster_nodes_index.yaml
+│   ├── discovery
+│   ├── secrets
+│   └── talos
+├── config_templates
+│   ├── cluster_config.yaml
+│   ├── cluster_nodes_index.yaml
+│   └── talos
+├── README.md
+├── requirements.txt
+├── scripts
+│   ├── config.py
+│   ├── hetzner_robot.py
+│   └── install-talos-metal.py
+└── storage
+```
+
+- `config` folder stores all config files relates to a cluster. You might want to handle it as a distinct git repo. - `config/secrets` is where all the Talos secrets for the cluster are stored. DO NOT ADD to git!!!
+- `config_templates` - template files used by the scripts to bootstrap `./config` content
+- `scripts/config.py` - main python script
+- `scripts/install-talos-metal.py` - script that handles intallation of Talos on metal servers over SSH
+
+## Usage
 
 ### Clone the repo
 
@@ -73,6 +100,22 @@ uv run scripts/config.py schematic
 ```
 
 This will calculate the Talos schematic ID and save it to `scripts/cluste_config.yaml`
+
+
+### Render the Talos config files
+
+In order to install Talos on all servers, we need:
+
+- a Talos config file for all control plane nodes. (All control plane nodes share the same Talos config)
+- a Talos config file for each worker node. (Each worker node has it's own Taloc config file because of disk IDs)
+
+Run this command to render Talos config files:
+
+```sh
+uv run scripts/config.py render
+```
+
+The Talos config files are stored in `config/secrets/nodes/`
 
 ### Create a vSwitch in "Robot/Server" (for metal servers)
 
