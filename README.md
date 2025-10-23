@@ -1,11 +1,27 @@
-## Clone the repo
+# Bunnyshell Open Talos-Hetzner Cluster Builder
+
+This is a collection of scripts and templates to help create Kubernetes cluster on metal (and virtul) servers in Hetzner.
+
+## Architecture
+
+- Hibrid Cluster
+  - HA control plane running on 3 VMs (Talos)
+  - N worker nodes running on Metal servers (Talos)
+- Load Balancer for Control Plane
+- Load Balancer for Ingress
+- vSwitch (connecting VMs and Metal servers)
+
+## Usage
+
+
+### Clone the repo
 
 ```sh
-git clone open-talos-hetzner-builder open-talos-hetzner-builder--taloscon
+git clone git@github.com:bunnyshell/open-talos-hetzner-builder 
 cd open-talos-hetzner-builder--taloscon
 ```
 
-## Install Python requirements (using mise)
+### Install Python requirements (using mise)
 
 ```sh
 mise trust
@@ -18,7 +34,7 @@ uv pip install -r requirements.txt
 # source .venv/bin/activate
 ```
 
-## Set Hetzner credentials in .env
+### Set Hetzner credentials in .env
 
 The script can manage the needed vSwitch if provided with Hetzner Robot Webservice credentials.
 Alternatively, you can create and manage the vSwitch manually from the Robot UI.
@@ -30,7 +46,7 @@ HETZNER_ROBOT_USER="__________________________________"
 HETZNER_ROBOT_PASSWORD="__________________________________"
 ```
 
-## Initialize Cluster Config
+### Initialize Cluster Config
 
 This script will create config folder, subfolder and draft config files.
 Also, it will create Talos secrets.
@@ -39,12 +55,12 @@ Also, it will create Talos secrets.
 uv run scripts/config.py init
 ```
 
-## Edit the config
+### Edit the config
 
 Set cluster name, endpoint, hostname and talos version.
 Optionally, edit Hetzner zone, datacenter and `cp-server-type`, `robot-vlan-tag`.
 
-## Edit the Talos Schematic and get the schematic ID.
+### Edit the Talos Schematic and get the schematic ID.
 
 The Talos schematic is used to build the Talos server image for each cluster node. We have 2 types of nodes: worker (metal) and controlplane (VMs).
 
@@ -58,12 +74,12 @@ uv run scripts/config.py schematic
 
 This will calculate the Talos schematic ID and save it to `scripts/cluste_config.yaml`
 
-## Create a vSwitch in "Robot/Server" (for metal servers)
+### Create a vSwitch in "Robot/Server" (for metal servers)
 
 The cluster needs a vSwitch to connect all metal servers in a private network.
 You have 2 choiches to create the vSwitch:
 
-### Option A: Manually
+#### Option A: Manually
 
 1. Use the Robot Web UI to create a vSwitch.  (or run `uv run scripts/config.py vswitch`)
 2. Connect the metal servers to this vSwitch. 
@@ -71,7 +87,7 @@ You have 2 choiches to create the vSwitch:
    - the VLAN TAG
    - vSwitch ID (automatic if `uv run scripts/config.py vswitch`)
 
-### Option B: Using the script
+#### Option B: Using the script
 
 The script will create the vSwitch (with the tag specified in the `config/cluster_config.yaml` file) and save the vSwitch ID (in the same file).
 
@@ -79,27 +95,25 @@ The script will create the vSwitch (with the tag specified in the `config/cluste
 ur run scripts/config.py vswitch
 ```
 
-## Create HCloud Network, subnets and connect subnets to vswitch
+### Create HCloud Network, subnets and connect subnets to vswitch
 
 The cluster needs Virtual Network (similar to a VPC) and dedicated subnets for metal and virtual servers. The metal subnet need to be exposed to the vSwitch (so that metal and virtual servers can communicate over the private network). This command handles all these requirements:
 
 `uv run scripts/config.py net`
 
-## Create LoadBalancer for Control Plane
+### Create LoadBalancer for Control Plane
 
 The cluster needs one load balancer dedicated to the control plane. All control plane nodes will be added to this LB. Run:
 
 `uv run scripts/config.py cp-lb`
 
-## Create DNS record(s) for the cluster Kube API
+### Create DNS record(s) for the cluster Kube API
 
 Create DNS records pointing the cluster hostname (defined as `cluster.hostname` in `scripts/cluster_config.yaml`) to the IP address or hostname of the control plane LB (created at the previous step).
 
 Run  `dig` or `nslookup` to make sure the hostname of the cluster is properly resolved by the DNS system.
 
-
-
-## Upload Talos image (snapshot) to HCloud
+### Upload Talos image (snapshot) to HCloud
 
 Hetzner does not support Talos out of the box, we need to create snapshot of Talos to be used for creating VMs.
 
@@ -109,7 +123,7 @@ uv run scripts/config.py hcloud-image
 
 If you want to upload the image manually, skip this step and set `hetzner.hcloud-image-id` in `config/cluster_config.yaml` value to match the desired image ID.
 
-## Create control plane nodes
+### Create control plane nodes
 
 The cluster uses 3 control plane nodes. These are VMs in HCloud. Run this command:
 
@@ -117,7 +131,7 @@ The cluster uses 3 control plane nodes. These are VMs in HCloud. Run this comman
 uv run scripts/config.py cp-nodes
 ```
 
-## Bootstrap Kubernetes on one control plane node
+### Bootstrap Kubernetes on one control plane node
 
 ```sh
 
@@ -147,9 +161,9 @@ kubectl get nodes
 
 At this point the cluster should have 3 control plane nodes, but NO CNI, so the nodes will be `NOT READY'.
 
-## Add metal servers as worker nodes to the cluster
+### Add metal servers as worker nodes to the cluster
 
-### Edit Worker nodes list
+#### Edit Worker nodes list
 
 We need to have a consistent naming/numbering scheme for the worker nodes. To do this, we write the `config/cluster_nodes_index.yaml` file.
 
@@ -160,7 +174,7 @@ index:
   3: __ip_of_workernopde_3__
 ```
 
-### Install Talos on metal worker nodes
+#### Install Talos on metal worker nodes
 
 Reboot each metal node in restore mode (using the Robot interface). Make sure you configure an SSH key for access to the server during restore.
 
@@ -176,3 +190,9 @@ uv run scripts/install-talos-metal.py -k ~/ssh-key -u root -i 1
 uv run scripts/install-talos-metal.py -k ~/ssh-key -u root -i 2
 
 ```
+
+## Next Steps
+
+- Install CNI
+- Install CSI
+
