@@ -1,0 +1,8 @@
+.venv
+.env
+storage
+CLAUDE.md
+scripts/__pycache__/*
+storage/*
+config
+confog/*

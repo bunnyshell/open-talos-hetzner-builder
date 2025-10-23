@@ -1,0 +1,5 @@
+machine:
+  kubelet:
+    nodeIP:
+      validSubnets:
+        - {{ cluster['networking']['private-node-cidr'] }}

@@ -1,0 +1,26 @@
+# Talos Cluster Configuration
+# This file contains the configuration for deploying a Talos Linux cluster on Hetzner
+
+talos:
+    version: v1.11.2                        # Set the desired talos version
+    schematicId: _____________              # DO NOT edit, managed by the scripts
+
+cluster:
+    name: bunnyshell-k8s-taloscon-2025
+    endpoint: https://bunnyshell-k8s-taloscon-2025.mydomain.com:6443
+    hostname: bunnyshell-k8s-taloscon-2025.mydomain.com
+    cp-lb-ip: _________                     # DO NOT edit, managed by the scripts; IP of control plane load balacer
+
+    networking:
+        private-node-cidr: 10.112.0.0/16    # CIDR for node private ip addresses
+        subnet-metal:      10.112.3.0/24    # Subnet of cluster_private_node_cidr, used by Metal servers
+        subnet-virtual:    10.112.2.0/24    # Subnet of cluster_private_node_cidr, used by Cloud servers
+        
+hetzner:
+    robot-vlan-tag:        4005             # VLAN Tag for the Hetzner vSwitch (Robot interface)
+    hcloud-zone:           eu-central       # hetzner zone
+    cp-server-type:        ccx13            # Server type for creating control plane nodes
+    cp-datacenter:         fsn1-dc14        # Datacenter for creating control plane nodes
+    robot-vswitch-id:      _____________    # Robot vSwitch ID; # DO NOT edit, managed by the scripts
+    hcloud-image-id:       _____________    # ID of image to use for Control Plane nodes (upload with `upload-hcloud-image`); # DO NOT edit, managed by the scripts
+    hcloud-network-id:     _________        # Hcloud Network ID; # DO NOT edit, managed by the scripts

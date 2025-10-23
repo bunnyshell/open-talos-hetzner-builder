@@ -1,0 +1,22 @@
+customization:
+  # extraKernelArgs: # optional
+    # - vga=791
+  # meta: # optional, allows to set initial Talos META
+    # - key: bunnyshell
+      # value: "poc-metal"
+  systemExtensions:
+      officialExtensions:
+          - siderolabs/btrfs
+          - siderolabs/drbd
+          - siderolabs/glibc
+          - siderolabs/hello-world-service
+          - siderolabs/iscsi-tools
+          - siderolabs/util-linux-tools
+          - siderolabs/kata-containers
+          # - siderolabs/fuse3
+          # - siderolabs/zfs          
+          # - siderolabs/cloudflared
+          # - siderolabs/wasmedge
+          # - siderolabs/spin
+          # - siderolabs/stargz-snapshotter
+          # - siderolabs/tailscale

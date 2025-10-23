@@ -1,0 +1,33 @@
+machine:
+  certSANs: 
+    - {{ node_public_ip }}
+    - {{ node_private_ip }}
+    - {{ node_name }}
+  network:
+    hostname: {{ node_name }}
+    interfaces:
+    - deviceSelector:
+          busPath: "0*" # should select any hardware network device, if you have just one, it will be selected
+      dhcp: true    
+      vlans:
+        - vlanId: {{ hetzner['robot-vlan-tag'] }}
+          addresses:
+            - "{{ node_private_ip }}/24" 
+            #- "{{ node_public_ip }}/29"         
+          routes:
+            - network: {{ cluster['networking']['private-node-cidr'] }}
+              gateway: {{ gateway_workers }}
+
+
+  install:
+    disk:
+      $patch: delete
+    diskSelector:
+      serial: {{ PRIMARY_DISK_ID }}
+    #   wwid: eui.0025388511c5c0fa
+  disks:
+    - device: {{ SECONDARY_DISK }}  # Your second disk device
+      partitions:
+        - mountpoint: /var/mnt/disk2  # Where you want to mount it
+          size: 0  # Use all available space
+          # format: ext4  # Specify the filesystem type (xfs, ext4, etc.)         

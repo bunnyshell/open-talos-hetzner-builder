@@ -1,0 +1,5 @@
+cluster:
+    etcd:
+        # # The `advertisedSubnets` field configures the networks to pick etcd advertised IP from.
+        advertisedSubnets:
+          - {{ cluster['networking']['private-node-cidr'] }}
