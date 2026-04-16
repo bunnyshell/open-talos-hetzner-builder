@@ -99,8 +99,7 @@ Next, run:
 uv run scripts/config.py schematic
 ```
 
-This will calculate the Talos schematic ID and save it to `scripts/cluste_config.yaml`
-
+This will calculate the Talos schematic ID (for the ` config/talos/schematic.yaml` file ) and save the ID  to   `scripts/cluster	_config.yaml`
 
 ### Render the Talos config files
 
@@ -125,7 +124,7 @@ You have 2 choiches to create the vSwitch:
 #### Option A: Manually
 
 1. Use the Robot Web UI to create a vSwitch.  (or run `uv run scripts/config.py vswitch`)
-2. Connect the metal servers to this vSwitch. 
+2. Connect the metal servers to this vSwitch.
 3. Make sure edit `config/talos_config/cluster_config.yaml` and fill in:
    - the VLAN TAG
    - vSwitch ID (automatic if `uv run scripts/config.py vswitch`)
@@ -232,6 +231,14 @@ uv run scripts/install-talos-metal.py -k ~/ssh-key -u root -i 1
 # Example for worker node 2
 uv run scripts/install-talos-metal.py -k ~/ssh-key -u root -i 2
 
+
+
+# re-render config (render W nodes)
+uv run scripts/config.py render
+
+talosctl apply-config --talosconfig config/secrets/talosconfig.yaml \
+  --nodes 213.239.209.119 -e 213.239.209.119 \
+  --file config/secrets/nodes/w1.yaml --insecure
 ```
 
 ## Next Steps
@@ -239,3 +246,55 @@ uv run scripts/install-talos-metal.py -k ~/ssh-key -u root -i 2
 - Install CNI
 - Install CSI
 
+# To Do:
+
+- parameterize kubernetes version
+- 
+- ```
+    dial tcp: lookup themarketer-k8s-alpha.bunnyinfra.com on 169.254.116.108:53: no such host
+
+    Cilium is configured with k8sServiceHost: themarketer-k8s-alpha.bunnyinfra.com but that hostname doesn't resolve from inside the pods. Since Cilium is the CNI and it's not running, there's no CoreDNS, no pod networking — a classic
+    chicken-and-egg problem.
+
+    Let me check the current Cilium values and verify what the API server is actually reachable at.
+  ```
+
+### PB 3
+
+```
+New error — now it's a TLS certificate mismatch:
+
+  x509: certificate is valid for 10.96.0.1, 10.112.2.1, 46.225.100.157, 127.0.0.1, not 91.98.1.175
+
+  The API server TLS certificate has SANs for the private IPs (10.112.2.x) and the public IPs of the VMs (46.225.100.157, 178.104.69.32), but not for the LB IP 91.98.1.175.
+
+  So using the LB IP won't work without updating the Talos API server cert SANs. The correct fix is to use a private CP IP that's already in the certificate. Since Cilium runs on every node and has host networking, it can reach the private
+  network directly.
+
+  Change k8s_service_host to 10.112.2.1 (cp-1's private IP, already in the cert SANs).
+
+  Or better — since you have 3 CP nodes — you could use any of them. But 10.112.2.1 (cp-1) is the simplest. For true HA you'd want a virtual/floating IP, but that's what the Hetzner LB at 91.98.1.175 was supposed to be — it just needs to be
+   added to the cert SANs.
+
+  Quick fix now: set k8s_service_host: "10.112.2.1" and redeploy Cilium.
+
+  Proper fix later: add 91.98.1.175 to the Talos certSANs for the API server and regenerate certs, then use the LB IP.			
+```
+
+### PB 4
+
+Two issues with scheduling:
+
+1. Control plane nodes have node-role.kubernetes.io/control-plane taint (normal — no workloads scheduled there)
+2. Worker nodes have node.cloudprovider.kubernetes.io/uninitialized taint — this means the external cloud provider hasn't initialized them yet. The worker Talos patches set cloud-provider: external but there's no cloud controller manager
+   running to clear this taint.
+
+  Since these are bare metal workers (not Hetzner Cloud VMs), they don't need an external cloud provider. You can either:
+
+  Option A — Remove the taint manually:
+  kubectl taint nodes themarketer-k8s-alpha-1 node.cloudprovider.kubernetes.io/uninitialized-
+  kubectl taint nodes themarketer-k8s-alpha-2 node.cloudprovider.kubernetes.io/uninitialized-
+
+  Option B — Remove cloud-provider: external from the worker Talos patch (w-kubelet-extra-args.yaml) so it doesn't come back.
+
+  Option A unblocks you now; Option B is the proper fix for metal workers. Want me to check that worker patch?
