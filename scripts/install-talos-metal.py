@@ -79,9 +79,75 @@ def reboot(ssh):
     ssh.run_tolerant("reboot")
 
     
+def discover_disks(ssh):
+    """Discover all disks and their metadata on the remote server.
+    Returns a list of disk dicts sorted by serial, and the by-id symlink mapping."""
+
+    print("=== Discovering disks ===")
+
+    # Get disk info: serial, name, size, type, model, wwn
+    lsblk_output = ssh.get_command_output(
+        "lsblk -dn -o SERIAL,NAME,SIZE,TYPE,MODEL,WWN -e 1,7,11,14,15"
+    )
+    if not lsblk_output:
+        print("✗ Error: Could not get disk information")
+        sys.exit(1)
+
+    # Get all /dev/disk/by-id/ symlinks
+    by_id_output = ssh.get_command_output("ls -la /dev/disk/by-id/")
+    print(by_id_output)
+
+    # Build a map: device_name -> [list of by-id symlink names]
+    by_id_map = {}
+    for line in by_id_output.split('\n'):
+        if '->' not in line:
+            continue
+        parts = line.split()
+        arrow_idx = parts.index('->')
+        symlink_name = parts[arrow_idx - 1]
+        target = parts[arrow_idx + 1]  # e.g. ../../nvme0n1
+        device_name = target.split('/')[-1]
+        # Only keep whole-disk symlinks (no partition suffix like p1, p2)
+        if device_name in by_id_map or any(device_name == d for d in by_id_map):
+            by_id_map[device_name].append(symlink_name)
+        else:
+            by_id_map[device_name] = [symlink_name]
+
+    # Parse lsblk output into disk objects
+    disks = []
+    for line in lsblk_output.strip().split('\n'):
+        # MODEL can contain spaces, so we need careful parsing
+        # Format: SERIAL NAME SIZE TYPE MODEL... WWN
+        # Use a different approach: get JSON output
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        disk = {
+            'serial': parts[0],
+            'name': parts[1],
+            'size': parts[2],
+            'type': parts[3],
+            'model': ' '.join(parts[4:-1]) if len(parts) > 5 else (parts[4] if len(parts) == 5 else ''),
+            'wwn': parts[-1] if len(parts) > 4 else '',
+            'by_id': by_id_map.get(parts[1], []),
+        }
+        disks.append(disk)
+
+    # Sort by serial (primary = first sorted)
+    disks.sort(key=lambda d: d['serial'])
+
+    for i, disk in enumerate(disks):
+        role = "PRIMARY" if i == 0 else f"DISK_{i+1}"
+        print(f"  {role}: {disk['name']} serial={disk['serial']} size={disk['size']} model={disk['model']} wwn={disk['wwn']}")
+        for symlink in disk['by_id']:
+            print(f"    /dev/disk/by-id/{symlink}")
+
+    return disks
+
+
 def install_talos(ssh, talos_version, talos_schematic):
     """Install Talos on the remote server"""
-    
+
     print("=== Stopping RAID arrays (tolerating failures) ===")
     ssh.run_tolerant("mdadm --stop /dev/md0")
     ssh.run_tolerant("mdadm --stop /dev/md1")
@@ -100,40 +166,21 @@ def install_talos(ssh, talos_version, talos_schematic):
     disk_layout = ssh.get_command_output("lsblk -o SERIAL,NAME,PATH,UUID,WWN,MODEL,SIZE")
     print(disk_layout)
 
-    print("=== Determining primary disk ===")
-    # Get primary disk info
-    lsblk_output = ssh.get_command_output("lsblk -dn -o SERIAL,NAME,SIZE,TYPE -e 1,7,11,14,15")
-    if not lsblk_output:
-        print("✗ Error: Could not get disk information")
+    # Discover all disks with full metadata
+    disks = discover_disks(ssh)
+    if not disks:
+        print("✗ Error: No disks found")
         sys.exit(1)
-    
-    lines = lsblk_output.strip().split('\n')
-    sorted_lines = sorted(lines)
-    if not sorted_lines:
-        print("✗ Error: Could not determine primary disk")
-        sys.exit(1)
-    
-    primary_disk_line = sorted_lines[0].split()
-    if len(primary_disk_line) < 2:
-        print("✗ Error: Could not parse primary disk information")
-        sys.exit(1)
-    
-    primary_disk = primary_disk_line[1]
-    primary_disk_id = primary_disk_line[0]
 
-    print(f"PRIMARY_DISK={primary_disk}")
-    print(f"PRIMARY disk ID: {primary_disk_id}")
+    primary_disk = disks[0]
+    print(f"\n=== Selected primary disk: {primary_disk['name']} (serial: {primary_disk['serial']}) ===")
 
-    print("=== Updated disk layout ===")
-    disk_layout = ssh.get_command_output("lsblk -o SERIAL,NAME,PATH,UUID,WWN,MODEL,SIZE")
-    print(disk_layout)
-
-    print(f"=== Downloading Talos image {talos_version} for schematic {talos_schematic} ===")
+    print(f"\n=== Downloading Talos image {talos_version} for schematic {talos_schematic} ===")
 
     # Change to /tmp directory and download
     download_url = f"https://factory.talos.dev/image/{talos_schematic}/{talos_version}/metal-amd64.iso"
     ssh.run_critical("cd /tmp && rm -f metal-amd64.iso")
-    
+
     download_cmd = f'cd /tmp && wget -q "{download_url}"'
     try:
         ssh.run_critical(download_cmd)
@@ -145,52 +192,62 @@ def install_talos(ssh, talos_version, talos_schematic):
     check_file = ssh.get_command_output("cd /tmp && ls -la metal-amd64.iso 2>/dev/null")
     if not check_file or "metal-amd64.iso" not in check_file:
         print("✗ Error: Talos image file not found after download")
-        # Debug: show what's in /tmp
         tmp_contents = ssh.get_command_output("cd /tmp && ls -la")
         print(f"Debug - /tmp contents: {tmp_contents}")
         sys.exit(1)
 
     print("✓ Downloaded Talos image successfully")
 
-    print(f"=== Writing Talos image to PRIMARY_DISK {primary_disk} ===")
-    ssh.run_critical(f"cd /tmp && dd of=/dev/{primary_disk} bs=4M oflag=sync if=metal-amd64.iso")
+    print(f"=== Writing Talos image to {primary_disk['name']} ===")
+    ssh.run_critical(f"cd /tmp && dd of=/dev/{primary_disk['name']} bs=4M oflag=sync if=metal-amd64.iso")
 
-    print("Done")
+    print("\n=== Installation Complete ===")
+    print(f"✓ Installed Talos on {primary_disk['name']}")
 
-    # Get secondary disk EUI
-    lsblk_wwn_output = ssh.get_command_output("lsblk -dn -o SERIAL,NAME,SIZE,TYPE,WWN -e 1,7,11,14,15")
-    secondary_disk_eui = ""
-    for line in lsblk_wwn_output.split('\n'):
-        parts = line.split()
-        if len(parts) >= 5 and primary_disk_id not in line:
-            secondary_disk_eui = parts[4]
-            break
+    return disks
 
-    print("=== Installation Complete ===")
-    print(f"✓ Installed Talos on {primary_disk}")
 
-    print("USE")
-    print(f"  diskSelector={primary_disk_id}")
-    print(f"  second disk ID /dev/disk/by-id/nvme-{secondary_disk_eui}")
-
-    return primary_disk_id, secondary_disk_eui
-
-def save_server_info(hostname, primary_disk_id, secondary_disk_eui, config_dir):
-    """Save server information to servers/<ip>.yaml"""
+def save_server_info(hostname, disks, config_dir):
+    """Save full disk metadata to discovery/<ip>.yaml"""
     discovery_dir = Path(config_dir) / "discovery"
     discovery_dir.mkdir(exist_ok=True)
-    
+
     server_file = discovery_dir / f"{hostname}.yaml"
-    
+
+    primary = disks[0]
+    secondary = disks[1] if len(disks) > 1 else None
+
+    # Pick the first by-id symlink for each disk (used in Talos config)
+    primary_by_id = primary['by_id'][0] if primary['by_id'] else ''
+    secondary_by_id = secondary['by_id'][0] if secondary and secondary['by_id'] else ''
+
+    # Keys consumed by the node template
     server_info = {
-        'PRIMARY_DISK_ID': primary_disk_id,
-        'SECONDARY_DISK': f"/dev/disk/by-id/nvme-{secondary_disk_eui}"
+        'PRIMARY_DISK_ID': primary['serial'],
+        'PRIMARY_DISK_BY_ID': primary_by_id,
+        'SECONDARY_DISK': f"/dev/disk/by-id/{secondary_by_id}" if secondary_by_id else '',
     }
-    
+
+    # Full disk metadata for reference
+    disk_list = []
+    for i, disk in enumerate(disks):
+        disk_list.append({
+            'role': 'primary' if i == 0 else 'secondary' if i == 1 else f'disk_{i+1}',
+            'name': disk['name'],
+            'serial': disk['serial'],
+            'size': disk['size'],
+            'model': disk['model'],
+            'wwn': disk['wwn'],
+            'by_id': disk['by_id'],
+        })
+    server_info['disks'] = disk_list
+
     with open(server_file, 'w') as f:
         yaml.dump(server_info, f, default_flow_style=False)
-    
+
     print(f"✓ Server information saved to {server_file}")
+    print(f"  PRIMARY_DISK_BY_ID: {primary_by_id}")
+    print(f"  SECONDARY_DISK: /dev/disk/by-id/{secondary_by_id}")
 
 def read_nodes_index(config_dir):
     config_file = config_dir / 'cluster_nodes_index.yaml'
@@ -244,10 +301,10 @@ def main():
     
     try:
         # Install Talos and collect disk information
-        primary_disk_id, secondary_disk_eui = install_talos(ssh, talos_version, talos_schematic)
-        
+        disks = install_talos(ssh, talos_version, talos_schematic)
+
         # Save server information
-        save_server_info(hostname, primary_disk_id, secondary_disk_eui, config_dir)
+        save_server_info(hostname, disks, config_dir)
         
         if args.reboot:
             print('Rebooting in 5 seconds')

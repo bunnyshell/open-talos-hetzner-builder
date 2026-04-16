@@ -1,10 +1,9 @@
 machine:
-  certSANs: 
+  certSANs:
     - {{ node_public_ip }}
     - {{ node_private_ip }}
     - {{ node_name }}
   network:
-    hostname: {{ node_name }}
     interfaces:
     - deviceSelector:
           busPath: "0*" # should select any hardware network device, if you have just one, it will be selected
@@ -20,14 +19,15 @@ machine:
 
 
   install:
-    disk:
-      $patch: delete
-    diskSelector:
-      serial: {{ PRIMARY_DISK_ID }}
-    #   wwid: eui.0025388511c5c0fa
+    disk: /dev/disk/by-id/{{ PRIMARY_DISK_BY_ID }}
   disks:
     - device: {{ SECONDARY_DISK }}  # Your second disk device
       partitions:
         - mountpoint: /var/mnt/disk2  # Where you want to mount it
           size: 0  # Use all available space
-          # format: ext4  # Specify the filesystem type (xfs, ext4, etc.)         
+          # format: ext4  # Specify the filesystem type (xfs, ext4, etc.)
+---
+apiVersion: v1alpha1
+kind: HostnameConfig
+auto: "off"
+hostname: {{ node_name }}

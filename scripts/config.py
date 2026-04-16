@@ -108,7 +108,7 @@ def generate_talos_config_controlplane(rendered_patches_list, rendered_patches_l
         "--with-examples=false", "--with-docs=false", 
         "--output", f"{config_folders['secrets_nodes_dir'] /'controlplane.yaml'}",
         "--output-types", "controlplane",
-        "--kubernetes-version", "1.32.4",
+        "--kubernetes-version", "1.35.2",
         "--with-secrets", f"{config_folders['secrets_file']}"
         ]
     
@@ -160,15 +160,26 @@ def generate_talos_config_talosconfig():
     except Error as e:
         print(("{e}"))
 
+def strip_hostname_config_document(file_path):
+    """Remove the HostnameConfig document from a generated Talos config file.
+    Talos v1.12+ generates this by default, but it conflicts with machine.network.hostname."""
+    with open(file_path, 'r') as f:
+        content = f.read()
+    docs = content.split('---\n')
+    filtered = [doc for doc in docs if 'kind: HostnameConfig' not in doc]
+    with open(file_path, 'w') as f:
+        f.write('---\n'.join(filtered))
+
+
 def generate_talos_config_workernodes(rendered_patches_list, rendered_patches_list_worker, cluster_worker_nodes):
 
     for node in cluster_worker_nodes:
 
         command_workernodes= ["talosctl", "gen", "config",
-            # "--with-examples=false", "--with-docs=false", 
+            # "--with-examples=false", "--with-docs=false",
             "--output", f"{config_folders['secrets_nodes_dir']}/{node['config_file']}",
             "--output-types", "worker",
-            "--kubernetes-version", "1.32.4",
+            "--kubernetes-version", "1.35.2",
             "--with-secrets", f"{config_folders['secrets_file']}"
             ]
         
@@ -204,8 +215,8 @@ def generate_talos_config_workernodes(rendered_patches_list, rendered_patches_li
 
 
     for node in cluster_worker_nodes:
-        print("talosctl validate --config config/talos/nodes/w2.yaml --mode metal")
-        print(f"talosctl apply-config  --talosconfig {config_folders['talosconfig_file']} --nodes {node['public_ip']} -e {node['public_ip']}  --file {config_folders['nodes_dir']}/{node['config_file']} --insecure")
+        print(f"talosctl validate --config {config_folders['secrets_nodes_dir']}/{node['config_file']} --mode metal")
+        print(f"talosctl apply-config  --talosconfig {config_folders['talosconfig_file']} --nodes {node['public_ip']} -e {node['public_ip']}  --file {config_folders['secrets_nodes_dir']}/{node['config_file']} --insecure")
 
 
 
@@ -459,19 +470,31 @@ def upload_hcloud_image(args):
         else:
             print(f"found {OUTPUT_FILE}, will not re-download")
 
-        print("Running Docker hcloud-upload-image:latest")
+        # # Original Docker-based upload (disabled while fsn1 is unavailable)
+        # print("Running Docker hcloud-upload-image:latest")
+        # subprocess.run([
+        #     "docker", "run", "--rm",
+        #     "-e", f"HCLOUD_TOKEN={hcloud_token}",
+        #     "-v", f"{os.getcwd()}/{OUTPUT_FILE}:/image.xz",
+        #     "ghcr.io/apricote/hcloud-upload-image:latest", "upload",
+        #     "--image-path", "/image.xz",
+        #     "--architecture", hcloud_server_arch,
+        #     "--compression", "xz",
+        #     "--labels", LABEL
+        # ], check=True)
 
-        # Run Docker container
+        # Run local binary (patched to default to nbg1)
+        print("Running local hcloud-upload-image binary")
+        hcloud_upload_bin = str(Path(__file__).resolve().parent.parent.parent / "hcloud-upload-image" / "hcloud-upload-image")
+        env = os.environ.copy()
+        env["HCLOUD_TOKEN"] = hcloud_token
         subprocess.run([
-            "docker", "run", "--rm",
-            "-e", f"HCLOUD_TOKEN={hcloud_token}",
-            "-v", f"{os.getcwd()}/{OUTPUT_FILE}:/image.xz",
-            "ghcr.io/apricote/hcloud-upload-image:latest", "upload",
-            "--image-path", "/image.xz",
+            hcloud_upload_bin, "upload",
+            "--image-path", f"{os.getcwd()}/{OUTPUT_FILE}",
             "--architecture", hcloud_server_arch,
             "--compression", "xz",
             "--labels", LABEL
-        ], check=True)
+        ], env=env, check=True)
 
         # Retrieve the snapshot id
         result = subprocess.run(
@@ -596,7 +619,8 @@ def create_network(args):
         # print(format_json(network))
 
     else:
-        exit()
+        # print(f"exit before creating net {net_name}")
+        # exit()
         print(f"creating net {net_name}")
         command = ['hcloud', 'network', 'create', '--name', net_name, '--ip-range', net_cidr]
         print(" ".join(command))
@@ -651,7 +675,8 @@ def create_network(args):
         # update cluster_config file with new image id
         with open(config_folders['cluster_config_file'], "r") as f:
             content = f.read()
-        content = re.sub(r'(hcloud-network-id:)\s+\S+(\s+#.*)$', rf'\1     {network['id']}\2', content, flags=re.MULTILINE)
+        network_id = network['id']
+        content = re.sub(r'(hcloud-network-id:)\s+\S+(\s+#.*)$', rf'\1     {network_id}\2', content, flags=re.MULTILINE)
 
         with open(config_folders['cluster_config_file'], "w") as f:
             f.write(content)
@@ -680,7 +705,7 @@ def create_cp_nodes(args):
             --network $HCLOUD_NETWORK_ID \
             --image $HCLOUD_TALOS_IMAGE_ID \
             --type ccx13 \
-            --datacenter fsn1-dc14 \
+            --datacenter nbg1-dc3 \
         --label 'type=controlplane' \
         --user-data-from-file ../config/rendered/controlplane.yaml
     """
@@ -693,7 +718,7 @@ def create_cp_nodes(args):
     datacenter = cluster_config['hetzner']['cp-datacenter']
     network_id = cluster_config['hetzner']['hcloud-network-id']
     server_image = cluster_config['hetzner']['hcloud-image-id']
-    userdata_file = config_folders['nodes_dir'] / 'controlplane.yaml'
+    userdata_file = config_folders['secrets_nodes_dir'] / 'controlplane.yaml'
     desired_cp_node_count = 3
 
     # check servers exist
@@ -723,7 +748,7 @@ def create_cp_nodes(args):
                 print(result.stderr)
             else:
                 print(result.stdout)
-            exit()
+            # exit()
     
         
 
@@ -761,7 +786,8 @@ def vswitch(args):
     # update cluster_config file with new vSwitch ID
     with open(config_folders['cluster_config_file'], "r") as f:
         content = f.read()
-    content = re.sub(r'(robot-vswitch-id:)\s+\S+(\s+#.*)$', rf'\1 {vswitch['id']}\2', content, flags=re.MULTILINE)
+    vswitch_id = vswitch['id']
+    content = re.sub(r'(robot-vswitch-id:)\s+\S+(\s+#.*)$', rf'\1 {vswitch_id}\2', content, flags=re.MULTILINE)
 
     with open(config_folders['cluster_config_file'], "w") as f:
         f.write(content)

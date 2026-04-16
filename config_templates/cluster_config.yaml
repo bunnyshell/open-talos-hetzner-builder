@@ -20,7 +20,7 @@ hetzner:
     robot-vlan-tag:        4005             # VLAN Tag for the Hetzner vSwitch (Robot interface)
     hcloud-zone:           eu-central       # hetzner zone
     cp-server-type:        ccx13            # Server type for creating control plane nodes
-    cp-datacenter:         fsn1-dc14        # Datacenter for creating control plane nodes
+    cp-datacenter:         nbg1-dc3         # Datacenter for creating control plane nodes
     robot-vswitch-id:      _____________    # Robot vSwitch ID; # DO NOT edit, managed by the scripts
     hcloud-image-id:       _____________    # ID of image to use for Control Plane nodes (upload with `upload-hcloud-image`); # DO NOT edit, managed by the scripts
     hcloud-network-id:     _________        # Hcloud Network ID; # DO NOT edit, managed by the scripts
